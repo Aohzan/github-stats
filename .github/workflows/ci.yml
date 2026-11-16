@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+
+      - name: Install requirements
+        run: python3 -m pip install -r requirements.txt
+
+      # The generation needs ACCESS_TOKEN, which pull requests don't get:
+      # check that the scripts and their dependencies import
+      - name: Import the scripts
+        run: python3 -c "import generate_images, github_stats"
+
+  # Dependabot updates are merged once the checks passed, except semver-major
+  # ones. RELEASE_TOKEN (an Actions and a Dependabot secret) is needed to merge
+  # changes to workflow files.
+  dependabot:
+    name: Dependabot merge
+    needs: [check]
+    # Opened by Dependabot from a branch of the repository. The called workflow
+    # also checks the last push came from Dependabot, with its commits.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.user.login == 'dependabot[bot]'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: Aohzan/.github/.github/workflows/dependabot-merge.yaml@ae7bef8d171afeda0951efefff7f1f1737a5cb39 # v3
+    secrets:
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
